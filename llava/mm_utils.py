@@ -31,7 +31,7 @@ def select_best_resolution(original_size, possible_resolutions):
         effective_resolution = min(downscaled_width * downscaled_height, original_width * original_height)
         wasted_resolution = (width * height) - effective_resolution
 
-        if effective_resolution > max_effective_resolution or (effective_resolution == max_effective_resolution and wasted_resolution < min_wasted_resolution):
+        if effective_resolution > max_effective_resolution or (effective_resolution == max_effective_resolution and wasted_resolution < min_wasted_resolution): #effective resolution相同的情况下，取浪费最少的
             max_effective_resolution = effective_resolution
             min_wasted_resolution = wasted_resolution
             best_fit = (width, height)
@@ -137,12 +137,12 @@ def process_anyres_image(image, processor, grid_pinpoints):
 
     patches = divide_to_patches(image_padded, processor.crop_size['height'])
 
-    image_original_resize = image.resize((processor.size['shortest_edge'], processor.size['shortest_edge']))
+    image_original_resize = image.resize((processor.size['shortest_edge'], processor.size['shortest_edge'])) #336x336
 
     image_patches = [image_original_resize] + patches
     image_patches = [processor.preprocess(image_patch, return_tensors='pt')['pixel_values'][0]
                      for image_patch in image_patches]
-    return torch.stack(image_patches, dim=0)
+    return torch.stack(image_patches, dim=0) # [2,3,4] x3x336x336
 
 
 def load_image_from_base64(image):
@@ -171,9 +171,10 @@ def process_images(images, image_processor, model_cfg):
             image = expand2square(image, tuple(int(x*255) for x in image_processor.image_mean))
             image = image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
             new_images.append(image)
-    elif image_aspect_ratio == "anyres":
+    elif image_aspect_ratio == "anyres": #LLaVA-1.6
         for image in images:
             image = process_anyres_image(image, image_processor, model_cfg.image_grid_pinpoints)
+            # image_grid_pinpoints in https://huggingface.co/liuhaotian/llava-v1.6-vicuna-7b/blob/72892672a5d71c897218c761c8e06c9a0541690d/config.json#L16
             new_images.append(image)
     else:
         return image_processor(images, return_tensors='pt')['pixel_values']
@@ -183,7 +184,7 @@ def process_images(images, image_processor, model_cfg):
 
 
 def tokenizer_image_token(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX, return_tensors=None):
-    prompt_chunks = [tokenizer(chunk).input_ids for chunk in prompt.split('<image>')]
+    prompt_chunks = [tokenizer(chunk).input_ids for chunk in prompt.split('<image>')] # 实际上<image>应该是DEFAULT_IMAGE_TOKEN in llava/constants.py
 
     def insert_separator(X, sep):
         return [ele for sublist in zip(X, [sep]*len(X)) for ele in sublist][:-1]
@@ -226,7 +227,7 @@ class KeywordsStoppingCriteria(StoppingCriteria):
             self.keyword_ids.append(torch.tensor(cur_keyword_ids))
         self.tokenizer = tokenizer
         self.start_len = input_ids.shape[1]
-    
+
     def call_for_batch(self, output_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
         offset = min(output_ids.shape[1] - self.start_len, self.max_keyword_len)
         self.keyword_ids = [keyword_id.to(output_ids.device) for keyword_id in self.keyword_ids]
@@ -239,7 +240,7 @@ class KeywordsStoppingCriteria(StoppingCriteria):
             if keyword in outputs:
                 return True
         return False
-    
+
     def __call__(self, output_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
         outputs = []
         for i in range(output_ids.shape[0]):

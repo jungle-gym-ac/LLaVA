@@ -91,10 +91,13 @@ def eval_model(args):
     else:
         args.conv_mode = conv_mode
 
+    # system message
     conv = conv_templates[args.conv_mode].copy()
     conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
+    #get prompt for this turn of conversation
     prompt = conv.get_prompt()
+
 
     image_files = image_parser(args)
     images = load_images(image_files)
@@ -103,7 +106,7 @@ def eval_model(args):
         images,
         image_processor,
         model.config
-    ).to(model.device, dtype=torch.float16)
+    ).to(model.device, dtype=torch.float16) #5x3x336x336?
 
     input_ids = (
         tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt")

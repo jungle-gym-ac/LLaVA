@@ -150,39 +150,39 @@ class LlavaMetaForCausalLM(ABC):
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
 
-        if type(images) is list or images.ndim == 5:
+        if type(images) is list or images.ndim == 5: # any resolution, LLaVA 1.5
             if type(images) is list:
                 images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
-            concat_images = torch.cat([image for image in images], dim=0)
-            image_features = self.encode_images(concat_images)
-            split_sizes = [image.shape[0] for image in images]
+            concat_images = torch.cat([image for image in images], dim=0) # [n,3,336,336],每张图片的子图数量不同
+            image_features = self.encode_images(concat_images) #[n,num_tokens,dim]
+            split_sizes = [image.shape[0] for image in images] # 每张图片的子图数量
             image_features = torch.split(image_features, split_sizes, dim=0)
-            mm_patch_merge_type = getattr(self.config, 'mm_patch_merge_type', 'flat')
+            mm_patch_merge_type = getattr(self.config, 'mm_patch_merge_type', 'flat')#merge type
             image_aspect_ratio = getattr(self.config, 'image_aspect_ratio', 'square')
             if mm_patch_merge_type == 'flat':
                 image_features = [x.flatten(0, 1) for x in image_features]
-            elif mm_patch_merge_type.startswith('spatial'):
+            elif mm_patch_merge_type.startswith('spatial'): # spatial_unpad
                 new_image_features = []
-                for image_idx, image_feature in enumerate(image_features):
+                for image_idx, image_feature in enumerate(image_features): # for every image
                     if image_feature.shape[0] > 1:
-                        base_image_feature = image_feature[0]
-                        image_feature = image_feature[1:]
+                        base_image_feature = image_feature[0] #base image
+                        image_feature = image_feature[1:] # sub images
                         height = width = self.get_vision_tower().num_patches_per_side
-                        assert height * width == base_image_feature.shape[0]
+                        assert height * width == base_image_feature.shape[0] # num_tokens per sub-image
                         if image_aspect_ratio == 'anyres':
-                            num_patch_width, num_patch_height = get_anyres_image_grid_shape(image_sizes[image_idx], self.config.image_grid_pinpoints, self.get_vision_tower().config.image_size)
+                            num_patch_width, num_patch_height = get_anyres_image_grid_shape(image_sizes[image_idx], self.config.image_grid_pinpoints, self.get_vision_tower().config.image_size) #在image_grid_pinpoints中匹配的最佳分辨率，如1, 3, 应该起名为num_sub_image_width, num_sub_image_height更合适
                             image_feature = image_feature.view(num_patch_height, num_patch_width, height, width, -1)
                         else:
                             raise NotImplementedError
-                        if 'unpad' in mm_patch_merge_type:
+                        if 'unpad' in mm_patch_merge_type: #spatial_unpad
                             image_feature = image_feature.permute(4, 0, 2, 1, 3).contiguous()
-                            image_feature = image_feature.flatten(1, 2).flatten(2, 3)
+                            image_feature = image_feature.flatten(1, 2).flatten(2, 3)#参考论文中的图，merge back to the original feature map, unpad the image, [dim, h, w]
                             image_feature = unpad_image(image_feature, image_sizes[image_idx])
                             image_feature = torch.cat((
                                 image_feature,
                                 self.model.image_newline[:, None, None].expand(*image_feature.shape[:-1], 1).to(image_feature.device)
-                            ), dim=-1)
-                            image_feature = image_feature.flatten(1, 2).transpose(0, 1)
+                            ), dim=-1) #加上learnalbe image_new_line token
+                            image_feature = image_feature.flatten(1, 2).transpose(0, 1) #[h*w+h, dim]
                         else:
                             image_feature = image_feature.permute(0, 2, 1, 3, 4).contiguous()
                             image_feature = image_feature.flatten(0, 3)
@@ -229,8 +229,8 @@ class LlavaMetaForCausalLM(ABC):
         new_input_embeds = []
         new_labels = []
         cur_image_idx = 0
-        for batch_idx, cur_input_ids in enumerate(input_ids):
-            num_images = (cur_input_ids == IMAGE_TOKEN_INDEX).sum()
+        for batch_idx, cur_input_ids in enumerate(input_ids): #处理batch中的每个image
+            num_images = (cur_input_ids == IMAGE_TOKEN_INDEX).sum()# 每个位置需要插入一张图片(所有子图)的embedding
             if num_images == 0:
                 cur_image_features = image_features[cur_image_idx]
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids)
