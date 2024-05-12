@@ -28,7 +28,8 @@ def select_best_resolution(original_size, possible_resolutions):
     for width, height in possible_resolutions:
         scale = min(width / original_width, height / original_height)
         downscaled_width, downscaled_height = int(original_width * scale), int(original_height * scale)
-        effective_resolution = min(downscaled_width * downscaled_height, original_width * original_height)
+        effective_resolution = min(downscaled_width * downscaled_height, original_width * original_height) 
+        #if original_width/height is larger, than the effective resolution is the downscaled size; if the original size is smaller and the image is upscaled, than the effective resolution is the original size. 
         wasted_resolution = (width * height) - effective_resolution
 
         if effective_resolution > max_effective_resolution or (effective_resolution == max_effective_resolution and wasted_resolution < min_wasted_resolution): #effective resolution相同的情况下，取浪费最少的
